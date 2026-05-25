@@ -1,0 +1,10 @@
+<launch>
+    <node pkg="rosservice" type="rosservice" name="motores_encendidos" 
+          args="call --wait /sparus2/controller/enable_thrusters" />
+
+    <node pkg="AUV_exploration" type="entorno.py" name="entorno" output="screen" />
+
+    <node pkg="AUV_exploration" type="exploration_strategy.py" name="exploracion" output="screen">
+        <param name="distancia_pasadas" value="3.0" />
+    </node>
+</launch>
