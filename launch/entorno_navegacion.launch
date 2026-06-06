@@ -5,6 +5,7 @@
     <node pkg="AUV_exploration" type="entorno.py" name="entorno" output="screen" />
 
     <node pkg="AUV_exploration" type="exploration_strategy.py" name="exploracion" output="screen">
-        <param name="distancia_pasadas" value="3.0" />
+        <param name="distancia_pasadas" value="4.0" />
+        <param name="tipo_deteccion" value="3" />
     </node>
 </launch>
