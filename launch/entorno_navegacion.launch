@@ -1,11 +1,16 @@
 <launch>
-    <node pkg="rosservice" type="rosservice" name="motores_encendidos" 
+    <include file="$(find cola2_sparus2)/launch/sim_start.launch"/>
+
+    <node pkg="rosservice" type="rosservice" name="motores_encendidos" launch-prefix="bash -c 'sleep 10; $0 $@'"
           args="call --wait /sparus2/controller/enable_thrusters" />
 
-    <node pkg="AUV_exploration" type="entorno.py" name="entorno" output="screen" />
+    <node pkg="AUV_exploration" type="entorno.py" name="entorno" output="screen" launch-prefix="bash -c 'sleep 10; $0 $@'"/>
 
-    <node pkg="AUV_exploration" type="exploration_strategy.py" name="exploracion" output="screen">
+    <node pkg="AUV_exploration" type="exploration_strategy.py" name="exploracion" output="screen" launch-prefix="bash -c 'sleep 10; $0 $@'">
         <param name="distancia_pasadas" value="4.0" />
         <param name="tipo_deteccion" value="3" />
     </node>
+
+    <node pkg="rosbag" type="record" name="rosbag_record_sim"
+        args="-a -o $(find AUV_exploration)/bags/simulacion" />
 </launch>

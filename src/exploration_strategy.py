@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import rospy
+import rosnode
 import numpy as np
 from shapely.geometry import Polygon, LineString, Point, MultiPoint
 from cola2_msgs.srv import Section, SectionRequest
@@ -7,6 +8,7 @@ from cola2_msgs.msg import PilotActionResult, NavSts
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point as PointROS
 from std_srvs.srv import Trigger, TriggerRequest
+from std_msgs.msg import Float64
 
 class Navegacion:
     def __init__(self):
@@ -29,9 +31,13 @@ class Navegacion:
         if (self.tipo_deteccion == 1 or self.tipo_deteccion == 3):
             self.distancia_min_entre_puntos = 0.8
         elif self.tipo_deteccion == 2:
-            self.distancia_min_entre_puntos = self.lado/4.0 + 0.1
+            self.distancia_min_entre_puntos = (np.sqrt((self.lado / 2)**2 + (self.lado / 2)**2) / 2)
 
         self.pos_actual = None
+
+        # Publicadores
+        self.pub_area_real = rospy.Publisher('/resultados/area_posidonia_real',Float64,queue_size=10,latch=True)
+        self.pub_area_calculada = rospy.Publisher('/resultados/area_posidonia_calculada',Float64,queue_size=10,latch=True)
 
         rospy.Subscriber('/sparus2/navigator/navigation', NavSts, self.actualizar_posicion)
 
@@ -86,7 +92,14 @@ class Navegacion:
             # Si se detecta un punto nuevo y estamos en modo 2 hay que detener la seccion, en el 3 solo si es el incio del seguimiento
             if si_hay_deteccion:
                 if self.tipo_deteccion == 2:
-                    self.detener_seccion = True
+                    clapa_actual = self.puntos_posidonia[self.indice_posidonia_actual]
+                    if len(clapa_actual) < 3:
+                        self.detener_seccion = True
+                    else:
+                        linea_anterior = LineString([clapa_actual[-3], clapa_actual[-2]])
+                        punto_nuevo = Point(clapa_actual[-1])
+                        if punto_nuevo.distance(linea_anterior) > 2.0:
+                            self.detener_seccion = True
                     self.modo_seguimiento = True
                 elif self.tipo_deteccion == 3:
                     if not self.modo_seguimiento:
@@ -335,8 +348,9 @@ class Navegacion:
         punto_inicio_clapa = Point(self.pos_actual)
 
         while self.modo_seguimiento and not rospy.is_shutdown():
-            centro_x = self.pos_actual[0]
-            centro_y = -self.pos_actual[1]
+            ultimo_punto_posidonia = self.puntos_posidonia[self.indice_posidonia_actual][-1]
+            centro_x = ultimo_punto_posidonia[0]
+            centro_y = -ultimo_punto_posidonia[1]
 
             # Puntos de las secciones del cuadrado
             puntos_cuadrado = [
@@ -360,14 +374,14 @@ class Navegacion:
                     if len(self.puntos_posidonia[self.indice_posidonia_actual]) > 3:
                         dist_inicio = Point(self.pos_actual).distance(punto_inicio_clapa)
                         # Si la distancia al punto de inicio es menor que el lado del cuadrado se considera el poligono cerrado
-                        if dist_inicio < self.lado:
+                        if dist_inicio < (self.distancia_min_entre_puntos * 2):
                             rospy.loginfo("Fin contorno posidonia")
                             self.modo_seguimiento = False
                             return
                     break 
 
     def wall_following(self):
-        paso = 2.0
+        paso = 1.5
         punto_inicio = Point(self.pos_actual)
 
         self.modo_seguimiento = True
@@ -389,13 +403,13 @@ class Navegacion:
 
             # Sigue dentro
             elif deteccion_anterior and deteccion_actual:
-                rumbo_seguimiento += np.deg2rad(-20)
+                rumbo_seguimiento += np.deg2rad(-30)
 
             # Sigue fuera
             elif not deteccion_anterior and not deteccion_actual:
                 rumbo_seguimiento += np.deg2rad(45)
 
-
+            # Enviar seccion con inclinacion
             x_fin = self.pos_actual[0] + paso * np.cos(rumbo_seguimiento)
             y_fin = self.pos_actual[1] + paso * np.sin(rumbo_seguimiento)
             self.hacer_seccion(self.pos_actual[0], self.pos_actual[1], x_fin, y_fin)
@@ -420,6 +434,7 @@ class Navegacion:
             # Se utiliza el area de shapely
             area_real = poligono.area
             rospy.loginfo(f"Area posidonia real {i}: {area_real}")
+            self.pub_area_real.publish(Float64(area_real))
 
         # Area poligonos detectados
         for i, puntos_clapa in enumerate(self.puntos_posidonia):
@@ -435,6 +450,9 @@ class Navegacion:
                 area_calculada = poligono_detectado.area
 
                 rospy.loginfo(f"Area posidonia calculada {i}: {area_calculada}")
+                self.pub_area_calculada.publish(Float64(area_calculada))
+
+        rosnode.kill_nodes(['/rosbag_record_sim'])
 
 
 if __name__ == '__main__':
