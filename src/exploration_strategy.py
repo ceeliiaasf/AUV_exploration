@@ -452,6 +452,7 @@ class Navegacion:
                 rospy.loginfo(f"Area posidonia calculada {i}: {area_calculada}")
                 self.pub_area_calculada.publish(Float64(area_calculada))
 
+        rospy.sleep(2.0)
         rosnode.kill_nodes(['/rosbag_record_sim'])
 
 
