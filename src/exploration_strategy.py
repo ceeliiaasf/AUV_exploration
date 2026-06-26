@@ -15,6 +15,9 @@ class Navegacion:
         rospy.init_node('estrategia_navegacion')
         self.distancia_pasadas = rospy.get_param('~distancia_pasadas', 3.0)
         self.tipo_deteccion = rospy.get_param('~tipo_deteccion', 1)
+        self.lado = rospy.get_param('~lado', 6.0)
+        self.grados_sigue_dentro = rospy.get_param('~grados_sigue_dentro', -30)
+        self.grados_sigue_fuera = rospy.get_param('~grados_sigue_fuera', 45)
 
         # Variable para guardar los puntos detectados de la posidonia
         self.puntos_posidonia = [[]]
@@ -24,9 +27,6 @@ class Navegacion:
         self.punto_interrupcion_barrido = None
         self.hubo_deteccion_en_pasada = False
         self.clapas_detectadas = []
-
-        # Lado cuadrado para el modo 2
-        self.lado = 6.0
 
         if (self.tipo_deteccion == 1 or self.tipo_deteccion == 3):
             self.distancia_min_entre_puntos = 0.8
@@ -61,9 +61,9 @@ class Navegacion:
         datos_posidonia = rospy.get_param('/entorno/posidonia_ned')
         self.poligonos_posidonia = [Polygon(puntos) for puntos in datos_posidonia]
 
-        rospy.sleep(0.5) 
+        rospy.sleep(1.0) 
 
-        self.publicador_marker = rospy.Publisher('visualizacion_deteccion_posidonia', Marker, queue_size=10)
+        self.publicador_marker = rospy.Publisher('visualizacion_deteccion_posidonia', Marker, queue_size=10, latch=True)
         self.marker_posidonia = Marker()
         self.marker_posidonia.header.frame_id = "world" # O "map"
         self.marker_posidonia.ns = "deteccion"
@@ -75,9 +75,12 @@ class Navegacion:
         # Tamaño del punto
         self.marker_posidonia.scale.x = 0.5 
         self.marker_posidonia.scale.y = 0.5
-        self.marker_posidonia.color.r = 1.0
+        self.marker_posidonia.color.r = 0.4
+        self.marker_posidonia.color.g = 0.75
+        self.marker_posidonia.color.b = 0.25
         self.marker_posidonia.color.a = 1.0
 
+        self.publicador_poligonos = rospy.Publisher('visualizacion_poligonos_posidonia', Marker, queue_size=10)
         self.generar_recorrido()
         self.calcular_area()
 
@@ -144,7 +147,6 @@ class Navegacion:
             punto_actual = Point(self.pos_actual[0], -self.pos_actual[1])
             
             for poligono in self.poligonos_posidonia:
-                # Tolerancia de margen (buffer) si es necesario, o contains directo
                 if poligono.contains(punto_actual):
                     return True
             return False
@@ -298,13 +300,16 @@ class Navegacion:
         xs = [p[0] for p in puntos_actuales]
         ys = [p[1] for p in puntos_actuales]
         
-        min_x, max_x = min(xs) - offset, max(xs) + offset
+        min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys) - offset, max(ys) + offset
 
         # Generar x cada distancia pasadas
         x_puntos = np.arange(min_x, max_x + 1, self.distancia_pasadas)
-        # Empezar en la segunda X y terminar en la penúltima
-        x_puntos = x_puntos[1:-1]
+
+        # Si el número de pasadas es impar, añadir una más
+        if len(x_puntos) % 2 != 0:
+            x_puntos = np.append(x_puntos, x_puntos[-1] + self.distancia_pasadas)
+
         ida_vertical = True
 
         for x in x_puntos:
@@ -374,7 +379,7 @@ class Navegacion:
                     if len(self.puntos_posidonia[self.indice_posidonia_actual]) > 3:
                         dist_inicio = Point(self.pos_actual).distance(punto_inicio_clapa)
                         # Si la distancia al punto de inicio es menor que el lado del cuadrado se considera el poligono cerrado
-                        if dist_inicio < (self.distancia_min_entre_puntos * 2):
+                        if dist_inicio < (self.distancia_min_entre_puntos * 2.5):
                             rospy.loginfo("Fin contorno posidonia")
                             self.modo_seguimiento = False
                             return
@@ -403,11 +408,11 @@ class Navegacion:
 
             # Sigue dentro
             elif deteccion_anterior and deteccion_actual:
-                rumbo_seguimiento += np.deg2rad(-30)
+                rumbo_seguimiento += np.deg2rad(self.grados_sigue_dentro)
 
             # Sigue fuera
             elif not deteccion_anterior and not deteccion_actual:
-                rumbo_seguimiento += np.deg2rad(45)
+                rumbo_seguimiento += np.deg2rad(self.grados_sigue_fuera)
 
             # Enviar seccion con inclinacion
             x_fin = self.pos_actual[0] + paso * np.cos(rumbo_seguimiento)
@@ -451,6 +456,34 @@ class Navegacion:
 
                 rospy.loginfo(f"Area posidonia calculada {i}: {area_calculada}")
                 self.pub_area_calculada.publish(Float64(area_calculada))
+
+                marker = Marker()
+                marker.header.frame_id = "world"
+                marker.header.stamp = rospy.Time.now()
+                marker.ns = "poligonos_posidonia"
+                marker.id = i
+                marker.type = Marker.LINE_STRIP
+                marker.action = Marker.ADD
+                marker.pose.orientation.w = 1.0
+
+                marker.scale.x = 0.2
+
+                marker.color.r = 0.702
+                marker.color.g = 0.176
+                marker.color.b = 0.176
+                marker.color.a = 1.0
+
+                coords = list(poligono_detectado.exterior.coords)
+
+                for x, y in coords:
+                    p = PointROS()
+                    p.x = x
+                    p.y = -y
+                    p.z = -2.0
+
+                    marker.points.append(p)
+
+                self.publicador_poligonos.publish(marker)
 
         rospy.sleep(2.0)
         rosnode.kill_nodes(['/rosbag_record_sim'])
