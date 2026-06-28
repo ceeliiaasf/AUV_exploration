@@ -8,7 +8,7 @@
 
     <node pkg="AUV_exploration" type="exploration_strategy.py" name="exploracion" output="screen" launch-prefix="bash -c 'sleep 10; $0 $@'">
         <param name="distancia_pasadas" value="5.0" />
-        <param name="tipo_deteccion" value="3" />
+        <param name="tipo_estrategia" value="2" />
         <param name="lado" value="8" />
         <param name="grados_sigue_dentro" value="-25" />
         <param name="grados_sigue_fuera" value="35" />

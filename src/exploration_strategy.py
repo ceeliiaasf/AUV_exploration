@@ -14,7 +14,7 @@ class Navegacion:
     def __init__(self):
         rospy.init_node('estrategia_navegacion')
         self.distancia_pasadas = rospy.get_param('~distancia_pasadas', 3.0)
-        self.tipo_deteccion = rospy.get_param('~tipo_deteccion', 1)
+        self.estrategia = rospy.get_param('~tipo_estrategia', 1)
         self.lado = rospy.get_param('~lado', 6.0)
         self.grados_sigue_dentro = rospy.get_param('~grados_sigue_dentro', -30)
         self.grados_sigue_fuera = rospy.get_param('~grados_sigue_fuera', 45)
@@ -26,11 +26,11 @@ class Navegacion:
         self.detener_seccion = False
         self.punto_interrupcion_barrido = None
         self.hubo_deteccion_en_pasada = False
-        self.clapas_detectadas = []
+        self.praderas_detectadas = []
 
-        if (self.tipo_deteccion == 1 or self.tipo_deteccion == 3):
+        if (self.estrategia == 1 or self.estrategia == 3):
             self.distancia_min_entre_puntos = 0.8
-        elif self.tipo_deteccion == 2:
+        elif self.estrategia == 2:
             self.distancia_min_entre_puntos = (np.sqrt((self.lado / 2)**2 + (self.lado / 2)**2) / 2)
 
         self.pos_actual = None
@@ -94,17 +94,17 @@ class Navegacion:
             si_hay_deteccion = self.comprobar_deteccion_posidonia()
             # Si se detecta un punto nuevo y estamos en modo 2 hay que detener la seccion, en el 3 solo si es el incio del seguimiento
             if si_hay_deteccion:
-                if self.tipo_deteccion == 2:
-                    clapa_actual = self.puntos_posidonia[self.indice_posidonia_actual]
-                    if len(clapa_actual) < 3:
+                if self.estrategia == 2:
+                    pradera_actual = self.puntos_posidonia[self.indice_posidonia_actual]
+                    if len(pradera_actual) < 3:
                         self.detener_seccion = True
                     else:
-                        linea_anterior = LineString([clapa_actual[-3], clapa_actual[-2]])
-                        punto_nuevo = Point(clapa_actual[-1])
-                        if punto_nuevo.distance(linea_anterior) > 2.0:
+                        linea_anterior = LineString([pradera_actual[-3], pradera_actual[-2]])
+                        punto_nuevo = Point(pradera_actual[-1])
+                        if punto_nuevo.distance(linea_anterior) > self.distancia_min_entre_puntos:
                             self.detener_seccion = True
                     self.modo_seguimiento = True
-                elif self.tipo_deteccion == 3:
+                elif self.estrategia == 3:
                     if not self.modo_seguimiento:
                         self.detener_seccion = True
                     self.modo_seguimiento = True
@@ -118,13 +118,13 @@ class Navegacion:
             # Si se detecta posidonia, se mira si es un punto lo suficientemente alejado respecto a uno detectado como para considerarlo nuevo
             punto_actual = Point(self.pos_actual)
             es_punto_nuevo = True
-            if self.clapas_detectadas:
-                for clapa in self.clapas_detectadas:
-                    if clapa.buffer(3.0).contains(punto_actual):
+            if self.praderas_detectadas:
+                for pradera in self.praderas_detectadas:
+                    if pradera.buffer(3.0).contains(punto_actual):
                         return False
             
-            for clapa in self.puntos_posidonia:
-                for p in clapa:
+            for pradera in self.puntos_posidonia:
+                for p in pradera:
                     distancia = punto_actual.distance(Point(p))
 
                     if distancia < self.distancia_min_entre_puntos:
@@ -142,7 +142,7 @@ class Navegacion:
         return False
     
     def esta_sobre_posidonia(self):
-        if (self.tipo_deteccion == 1 or self.tipo_deteccion == 3):
+        if (self.estrategia == 1 or self.estrategia == 3):
             # Si es el modo 1 ha de mirar si la posicion actual se encuentra en cualquier parte de la posidonia
             punto_actual = Point(self.pos_actual[0], -self.pos_actual[1])
             
@@ -152,7 +152,7 @@ class Navegacion:
             return False
         
         # Si es el modo 2, solo se mira si intersecta el robot con el contorno
-        elif (self.tipo_deteccion == 2):
+        elif (self.estrategia == 2):
             x_now, y_now = self.pos_actual[0], -self.pos_actual[1]
             linea = LineString([(x_now - 0.2, y_now), (x_now + 0.2, y_now)])
 
@@ -255,11 +255,11 @@ class Navegacion:
                     
                     # Comprobamos si la sección fue interrumpida y se ha de generar el cuadrado del modo 2
                     if self.detener_seccion and self.modo_seguimiento:
-                        if self.tipo_deteccion == 2:
+                        if self.estrategia == 2:
                             rospy.loginfo("Iniciando cuadrado de seguimiento")
                             self.generar_cuadrado() 
                             
-                        elif self.tipo_deteccion == 3:
+                        elif self.estrategia == 3:
                             rospy.loginfo("Iniciando modo wall following")
                             self.wall_following()
                         
@@ -276,7 +276,7 @@ class Navegacion:
                         if len(self.puntos_posidonia[self.indice_posidonia_actual]) > 0:
                             if not self.hubo_deteccion_en_pasada:
                                 # Si no se ha detectado y esta en el modo 1, se han de ejecutar pasadas verticales
-                                if self.tipo_deteccion == 1:
+                                if self.estrategia == 1:
                                     self.detener_seccion = True
                                     self.realizar_pasadas_verticales()
                                     self.detener_seccion = False
@@ -287,7 +287,7 @@ class Navegacion:
 
                 ida = not ida
         # Si en la ultima pasada ha detectado posidonia y esta en el modo 1 ha de hacer las pasadas verticales
-        if (self.tipo_deteccion == 1 and len(self.puntos_posidonia[self.indice_posidonia_actual]) > 0):
+        if (self.estrategia == 1 and len(self.puntos_posidonia[self.indice_posidonia_actual]) > 0):
             self.realizar_pasadas_verticales()
             self.indice_posidonia_actual += 1
             self.puntos_posidonia.append([])
@@ -350,7 +350,7 @@ class Navegacion:
 
     def generar_cuadrado(self):
         mitad = self.lado / 2.0 
-        punto_inicio_clapa = Point(self.pos_actual)
+        punto_inicio_pradera = Point(self.pos_actual)
 
         while self.modo_seguimiento and not rospy.is_shutdown():
             ultimo_punto_posidonia = self.puntos_posidonia[self.indice_posidonia_actual][-1]
@@ -377,9 +377,9 @@ class Navegacion:
                     self.detener_seccion = False
                     
                     if len(self.puntos_posidonia[self.indice_posidonia_actual]) > 3:
-                        dist_inicio = Point(self.pos_actual).distance(punto_inicio_clapa)
+                        dist_inicio = Point(self.pos_actual).distance(punto_inicio_pradera)
                         # Si la distancia al punto de inicio es menor que el lado del cuadrado se considera el poligono cerrado
-                        if dist_inicio < (self.distancia_min_entre_puntos * 2.5):
+                        if dist_inicio < self.lado:
                             rospy.loginfo("Fin contorno posidonia")
                             self.modo_seguimiento = False
                             return
@@ -430,7 +430,7 @@ class Navegacion:
                     nube = MultiPoint(self.puntos_posidonia[self.indice_posidonia_actual])
                     poligono_detectado = nube.convex_hull
 
-                    self.clapas_detectadas.append(poligono_detectado)
+                    self.praderas_detectadas.append(poligono_detectado)
                     break
 
     def calcular_area(self):
@@ -442,14 +442,19 @@ class Navegacion:
             self.pub_area_real.publish(Float64(area_real))
 
         # Area poligonos detectados
-        for i, puntos_clapa in enumerate(self.puntos_posidonia):
-            # Se necesitan mínimo 3 puntos
-            if len(puntos_clapa) >= 3:
-                # Lista de puntos a un objeto MultiPoint de Shapely
-                nube_puntos = MultiPoint(puntos_clapa)
+        for i, puntos_pradera in enumerate(self.puntos_posidonia):
+            # Se necesitan mínimo 3 puntos en la pradera
+            if len(puntos_pradera) >= 3:
 
-                # Se genera el poligono exterior de los puntos
-                poligono_detectado = nube_puntos.convex_hull
+                if self.estrategia == 2:
+                    # Como los puntos ya están ordenados y son de contorno, para la estrategia 2 se crea el polígono directamente
+                    poligono_detectado = Polygon(puntos_pradera)
+                else:
+                    # Para estrategia 1 y 3
+                    # Lista de puntos a un objeto MultiPoint de Shapely
+                    nube_puntos = MultiPoint(puntos_pradera)
+                    # Se genera el poligono exterior de los puntos
+                    poligono_detectado = nube_puntos.convex_hull
 
                 # Calculo de area
                 area_calculada = poligono_detectado.area
